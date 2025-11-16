@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="hr">
+<head>
+<meta charset="utf-8" />
+<title>Breakout – vježba</title>
+<style>
+  :root{
+    --bg: #000;
+    --frame: #fff;
+    --text: #fff;
+    --accent: #ff0;
+  }
+  html,body{
+    height:100%;
+    margin:0;
+    background: var(--bg);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color: var(--text);
+    font-family: Helvetica, Verdana, Arial, sans-serif;
+  }
+  canvas{
+    border:5px solid var(--frame);
+    background:#000;
+    display:block;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c" width="880" height="620" aria-label="Breakout"></canvas>
+
+<script>
+
+
+var canvas = document.getElementById('c');
+var ctx = canvas.getContext('2d');
+
+
+var ROWS = 5;                   // broj redova cigli
+var COLS = 10;                  // broj stupaca cigli
+var MAX_SCORE = ROWS * COLS;    // max broj bodova
+var START_SPEED = 4;            // početna konstanta brzina
+var BALL_SIZE = 8;              // kvadrat
+var PADDLE_W = 90, PADDLE_H = 12; // donja palica
+
+
+var BRICK_ROW_COLORS = [
+  "rgb(153, 51, 0)",    // 1. smeđa
+  "rgb(255, 0, 0)",     // 2. crvena
+  "rgb(255, 153, 204)", // 3. ružičasta
+  "rgb(0, 255, 0)",     // 4. zelena
+  "rgb(255, 255, 153)"  // 5. žuta
+];
+
+
+var BRICK_W = 70, BRICK_H = 18, BRICK_PAD = 10;
+var BRICK_OFFSET_TOP = 60, BRICK_OFFSET_LEFT = 30;
+
+
+var started = false;
+var over = false;
+var won = false;
+var score = 0;
+
+
+var BEST_KEY = "breakout_best";
+var bestScore = parseInt(localStorage.getItem(BEST_KEY) || "0", 10);
+
+
+var paddleX = (canvas.width - PADDLE_W) / 2;
+
+
+var ballX, ballY, dx, dy;
+
+
+var leftPressed = false, rightPressed = false;
+
+
+var bricks = [];
+
+
+function reset_ball_and_paddle(){
+  paddleX = (canvas.width - PADDLE_W) / 2;
+  ballX = paddleX + PADDLE_W/2 - BALL_SIZE/2;
+  ballY = canvas.height - 40; 
+  var dir = Math.random() < 0.5 ? -1 : 1;
+  
+  var s = START_SPEED / Math.SQRT2;
+  dx = dir * s;
+  dy = -s;
+}
+
+function build_bricks(){
+  bricks = [];
+  for (var c = 0; c < COLS; c++){
+    bricks[c] = [];
+    for (var r = 0; r < ROWS; r++){
+      bricks[c][r] = {x:0,y:0,status:1};
+    }
+  }
+}
+
+function start_game(){
+  started = true;
+  over = false;
+  won = false;
+  score = 0;
+  build_bricks();
+  reset_ball_and_paddle();
+  requestAnimationFrame(loop);
+}
+
+function end_game(isWin){
+  over = true;
+  won = isWin;
+  if (score > bestScore){
+    bestScore = score;
+    localStorage.setItem(BEST_KEY, String(bestScore));
+  }
+  draw_frame(); 
+  draw_end_message();
+}
+
+
+function draw_centered_text(text, y, font, color){
+  ctx.save();
+  ctx.font = font;
+  ctx.fillStyle = color;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width/2, y);
+  ctx.restore();
+}
+
+function draw_start_screen(){
+  draw_centered_text("BREAKOUT", canvas.height/2 - 10, "bold 36px Helvetica, Verdana, sans-serif", "#fff");
+  draw_centered_text("Press SPACE to begin", canvas.height/2 + 20, "italic bold 18px Helvetica, Verdana, sans-serif", "#fff");
+}
+
+function draw_end_message(){
+  var msg = won ? "YOU WIN!" : "GAME OVER";
+  draw_centered_text(msg, canvas.height/2, "bold 40px Helvetica, Verdana, sans-serif", "yellow");
+}
+
+function draw_score_hud(){
+ 
+  ctx.save();
+  ctx.font = "16px Helvetica, Verdana, sans-serif";
+  ctx.fillStyle = "#fff";
+  ctx.textAlign = "left";
+  ctx.fillText("Score: " + score, 8, 20);
+
+  ctx.textAlign = "right";
+  ctx.fillText("Max: " + MAX_SCORE, canvas.width - 8, 20);
+  ctx.restore();
+}
+
+function fill_with_3d(rectX, rectY, w, h, baseColor){
+ 
+  var g = ctx.createLinearGradient(rectX, rectY, rectX, rectY + h);
+  g.addColorStop(0, "rgba(255,255,255,0.65)");
+  g.addColorStop(0.5, baseColor);
+  g.addColorStop(1, "rgba(0,0,0,0.25)");
+  ctx.fillStyle = g;
+  ctx.fillRect(rectX, rectY, w, h);
+  ctx.strokeStyle = "rgba(0,0,0,0.6)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(rectX+0.5, rectY+0.5, w-1, h-1);
+}
+
+function draw_bricks(){
+  for (var c = 0; c < COLS; c++){
+    for (var r = 0; r < ROWS; r++){
+      var b = bricks[c][r];
+      if (!b.status) continue;
+      var x = BRICK_OFFSET_LEFT + c*(BRICK_W + BRICK_PAD);
+      var y = BRICK_OFFSET_TOP  + r*(BRICK_H + BRICK_PAD);
+      b.x = x; b.y = y;
+      fill_with_3d(x, y, BRICK_W, BRICK_H, BRICK_ROW_COLORS[r]);
+    }
+  }
+}
+
+function draw_paddle(){
+  
+  fill_with_3d(paddleX, canvas.height - 20 - PADDLE_H, PADDLE_W, PADDLE_H, "#e8e8e8");
+}
+
+function draw_ball(){
+  
+  fill_with_3d(ballX, ballY, BALL_SIZE, BALL_SIZE, "#f0f0f0");
+}
+
+function clear(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+}
+
+function draw_frame(){
+  clear();
+  draw_bricks();
+  draw_paddle();
+  draw_ball();
+  draw_score_hud();
+  if (!started) draw_start_screen();
+  if (over) draw_end_message();
+}
+
+
+function rect_intersect(ax, ay, aw, ah, bx, by, bw, bh){
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function handle_collisions(){
+  
+  if (ballX + dx < 0 || ballX + BALL_SIZE + dx > canvas.width){
+    dx = -dx;
+  }
+  if (ballY + dy < 0){
+    dy = -dy;
+  }
+
+ 
+  var paddleY = canvas.height - 20 - PADDLE_H;
+  if (rect_intersect(ballX + dx, ballY + dy, BALL_SIZE, BALL_SIZE, paddleX, paddleY, PADDLE_W, PADDLE_H)){
+    
+    var hitPos = (ballX + BALL_SIZE/2) - (paddleX + PADDLE_W/2);
+    var ratio = hitPos / (PADDLE_W/2); 
+    var speed = Math.hypot(dx, dy);
+    var angle = ratio * (Math.PI/3); 
+    dx = speed * Math.sin(angle);
+    dy = -Math.abs(speed * Math.cos(angle));
+  }
+
+  
+  if (ballY + BALL_SIZE + dy > canvas.height){
+    end_game(false);
+    return;
+  }
+
+  
+  outer:
+  for (var c = 0; c < COLS; c++){
+    for (var r = 0; r < ROWS; r++){
+      var b = bricks[c][r];
+      if (!b.status) continue;
+
+      if (rect_intersect(ballX + dx, ballY + dy, BALL_SIZE, BALL_SIZE, b.x, b.y, BRICK_W, BRICK_H)){
+        
+        var prevX = ballX, prevY = ballY;
+        var overlapLeft   = (prevX + BALL_SIZE) - b.x;
+        var overlapRight  = (b.x + BRICK_W) - prevX;
+        var overlapTop    = (prevY + BALL_SIZE) - b.y;
+        var overlapBottom = (b.y + BRICK_H) - prevY;
+        var minOverlapX = Math.min(overlapLeft, overlapRight);
+        var minOverlapY = Math.min(overlapTop, overlapBottom);
+
+        if (minOverlapX < minOverlapY) {
+          dx = -dx; 
+        } else if (minOverlapY < minOverlapX) {
+          dy = -dy; 
+        } else {
+          
+          dx = -dx; dy = -dy;
+          var speedUp = 1.06;
+          dx *= speedUp; dy *= speedUp;
+        }
+
+        b.status = 0;
+        score++;
+
+        if (score >= MAX_SCORE){
+          end_game(true);
+        }
+        break outer;
+      }
+    }
+  }
+}
+
+
+function update(){
+  handle_collisions();
+  ballX += dx;
+  ballY += dy;
+
+  if (rightPressed && paddleX < canvas.width - PADDLE_W) paddleX += 7;
+  if (leftPressed  && paddleX > 0)                          paddleX -= 7;
+}
+
+function loop(){
+  if (over) { draw_frame(); return; }
+  update();
+  draw_frame();
+  requestAnimationFrame(loop);
+}
+
+
+document.addEventListener('keydown', function(e){
+  if (e.code === 'ArrowRight' || e.key === 'd' || e.key === 'D') rightPressed = true;
+  if (e.code === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') leftPressed  = true;
+  if (e.code === 'Space' && !started) start_game();
+});
+document.addEventListener('keyup', function(e){
+  if (e.code === 'ArrowRight' || e.key === 'd' || e.key === 'D') rightPressed = false;
+  if (e.code === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') leftPressed  = false;
+});
+
+build_bricks();
+reset_ball_and_paddle();
+draw_frame();
+</script>
+</body>
+</html>
